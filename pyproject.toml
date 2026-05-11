@@ -2,6 +2,8 @@
 name = "vision-mcp"
 version = "0.1.0"
 description = "MCP (stdio): Qwen VL via DashScope — image understanding for text-only LLM clients"
+readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
     "mcp>=1.13",
@@ -12,6 +14,9 @@ dependencies = [
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
 ]
 
+[project.urls]
+Homepage = "https://pjlab.top"
+
 [project.scripts]
 vision-mcp = "vision_mcp.server:run_sync"
 
@@ -21,3 +26,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["vision_mcp"]
+
+# 发布 sdist 时一并打包许可证与中文说明
+[tool.hatch.build.targets.sdist]
+include = [
+    "/LICENSE",
+    "/README.md",
+    "/README.zh-CN.md",
+    "/.env.example",
+]
