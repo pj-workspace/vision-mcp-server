@@ -1,0 +1,23 @@
+[project]
+name = "vision-mcp"
+version = "0.1.0"
+description = "MCP (stdio): Qwen VL via DashScope — image understanding for text-only LLM clients"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.13",
+    "openai>=1.30",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31",
+    "Pillow>=10.0",
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
+]
+
+[project.scripts]
+vision-mcp = "vision_mcp.server:run_sync"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["vision_mcp"]
