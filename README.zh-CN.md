@@ -1,6 +1,8 @@
 # vision-mcp
 
-面向**没有多模态能力、只能处理文本**的大模型：通过 **Model Context Protocol（stdio）** 调用阿里云百炼 **通义千问 VL**（默认 `qwen3-vl-flash`），把图片读成**结构化文本描述**，再让主对话模型基于这些文字继续推理、摘要或问答。
+面向**没有多模态能力、只能处理文本**的大模型：通过 **Model Context Protocol（stdio）** 调用视觉 API，把图片读成**结构化文本描述**，再让主对话模型基于这些文字继续推理、摘要或问答。
+
+**默认提供商**：阿里云百炼 **通义千问 VL**（`qwen3-vl-flash`）。设置 `VISION_MCP_PROVIDER=moonshot` 可改用 **Moonshot / Kimi** 视觉模型（见 [API Key](#api-key)）。
 
 适用场景：宿主模型不支持图像输入、或聊天里贴图无法进入模型上下文时，用本服务单独「看图」，把结果当普通文本用。
 
@@ -13,8 +15,9 @@
 - **多图**：单次 1～16 张；每张可带 `url` / `base64`+`mime_type` / `file_path`；**同时存在时优先 `file_path`，其次 URL，最后 base64**
 - **意图**：`describe` | `ocr` | `extract_structure` | `compare` | `reason` | `other`
 - **场景画像**：`general` | `document` | `chart` | `ui` | `education`
-- **质量**：`fast` | `balanced` | `high_detail`（映射 DashScope `extra_body`）
-- **大文件 / 大图**：可走百炼临时 OSS（需配置 `DASHSCOPE_API_KEY`，上传所用 `model` 须与调用一致）
+- **质量**：`fast` | `balanced` | `high_detail`（仅 DashScope 生效，映射 `extra_body`；Moonshot/Kimi 下忽略）
+- **大文件 / 大图**：DashScope 可走百炼临时 OSS；Moonshot/Kimi 将图片内联为 data URL（不支持 `oss://`）
+- **本地路径**：默认可访问 `$HOME`、系统临时目录（便于剪贴板截图）及 `VISION_MCP_ALLOWED_DIRS` 配置的目录
 
 ## 安装
 
@@ -30,10 +33,28 @@ pip install -e .
 
 ## API Key
 
-任选其一：
+复制 `.env.example` 为 `.env`（**切勿将 `.env` 提交到 Git**），按需选择提供商：
 
-1. **`.env`**：复制 `.env.example` 为 `.env`，填写 `DASHSCOPE_API_KEY`（**切勿将 `.env` 提交到 Git**）。
-2. **macOS 钥匙串**：`start.sh` 在未设置 `DASHSCOPE_API_KEY` 时会执行 `security find-generic-password -s dashscope-api-key -w`；请先在钥匙串中创建对应条目，或通过 `VISION_MCP_KEYCHAIN_SERVICE` 改用自定义服务名。
+### 百炼 DashScope（默认）
+
+```bash
+# VISION_MCP_PROVIDER=dashscope   # 可省略，默认即 dashscope
+DASHSCOPE_API_KEY=sk-your-dashscope-key
+# VISION_MCP_MODEL=qwen3-vl-flash
+```
+
+**macOS 钥匙串**：`start.sh` 在未设置 `DASHSCOPE_API_KEY` 时会执行 `security find-generic-password -s dashscope-api-key -w`；请先在钥匙串中创建对应条目，或通过 `VISION_MCP_KEYCHAIN_SERVICE` 改用自定义服务名。
+
+### Moonshot / Kimi
+
+```bash
+VISION_MCP_PROVIDER=moonshot
+MOONSHOT_API_KEY=sk-your-key
+VISION_MCP_MODEL=moonshot-v1-8k-vision-preview   # 或 kimi-for-coding（Coding Plan）
+MOONSHOT_BASE_URL=https://api.moonshot.cn/v1     # Coding Plan：https://api.kimi.com/coding/v1
+```
+
+也可使用通用变量 `VISION_MCP_API_KEY` 代替各提供商专用 Key。解析顺序：`VISION_MCP_API_KEY` → `MOONSHOT_API_KEY` → `DASHSCOPE_API_KEY`。
 
 ## 接入 MCP 客户端（stdio）
 
@@ -76,14 +97,22 @@ pip install -e .
 
 | 变量 | 说明 |
 |------|------|
-| `VISION_MCP_MODEL` | 默认 `qwen3-vl-flash` |
+| `VISION_MCP_PROVIDER` | `dashscope`（默认）或 `moonshot` / `kimi` |
+| `VISION_MCP_API_KEY` | 通用 API Key（优先于各提供商专用变量） |
+| `VISION_MCP_MODEL` | DashScope 默认 `qwen3-vl-flash`；Moonshot 默认 `moonshot-v1-8k-vision-preview` |
+| `VISION_MCP_BASE_URL` | 可选，覆盖 Moonshot OpenAI 兼容端点 |
+| `DASHSCOPE_API_KEY` | 百炼 API Key |
 | `DASHSCOPE_BASE_URL` | 默认 `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `VISION_MCP_ALLOWED_DIRS` | 额外允许的本地目录，POSIX 下用 `:` 分隔（默认可访问 `$HOME` 下路径） |
+| `MOONSHOT_API_KEY` | Moonshot / Kimi API Key |
+| `MOONSHOT_BASE_URL` | 默认 `https://api.moonshot.cn/v1` |
+| `VISION_MCP_ALLOWED_DIRS` | 额外允许的本地目录，POSIX 下用 `:` 分隔（`$HOME` 与系统临时目录始终允许） |
 | `VISION_MCP_KEYCHAIN_SERVICE` | （macOS + `start.sh`）钥匙串服务名，默认 `dashscope-api-key` |
 
-## 临时 OSS 上传
+## 临时 OSS 上传（仅 DashScope）
 
-与百炼文档一致：解析 `oss://` 资源时需 HTTP 头 `X-DashScope-OssResourceResolve: enable`（本客户端已在 OpenAI SDK 的 `default_headers` 中配置）。
+当 `VISION_MCP_PROVIDER=dashscope` 时，大体积本地图片与 `oss://` 可走百炼临时 OSS；客户端通过 OpenAI SDK `default_headers` 设置 `X-DashScope-OssResourceResolve: enable`。
+
+Moonshot/Kimi 下图片以内联 data URL 发送，不支持 `oss://`，请改用 `file_path` 或 `base64`。
 
 详见：[获取临时文件 URL](https://www.alibabacloud.com/help/zh/model-studio/get-temporary-file-url)
 
@@ -94,6 +123,7 @@ pip install -e .
 ## 文档与模型
 
 - [Qwen VL OpenAI 兼容](https://help.aliyun.com/zh/model-studio/developer-reference/qwen-vl-compatible-with-openai)
+- [Moonshot 开放平台](https://platform.moonshot.cn/docs)
 
 ## 交流与作者
 
