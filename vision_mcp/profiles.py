@@ -73,7 +73,11 @@ def resolve_intent_profile_quality(
 
 
 def quality_extra_body(quality: str) -> dict[str, Any]:
-    """Map quality to DashScope VL extra_body (non-thinking)."""
+    """Map quality to provider-specific request extras."""
+    from vision_mcp.vision_client import uses_dashscope_oss
+
+    if not uses_dashscope_oss():
+        return {}
     if quality == "high_detail":
         return {"vl_high_resolution_images": True}
     if quality == "fast":

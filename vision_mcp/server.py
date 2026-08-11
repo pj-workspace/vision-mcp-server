@@ -17,7 +17,7 @@ from vision_mcp.clipboard_io import ClipboardError, capture_clipboard_image
 from vision_mcp.image_utils import normalize_all
 from vision_mcp.profiles import build_messages, resolve_intent_profile_quality
 from vision_mcp.vision_client import analyze as vl_analyze
-from vision_mcp.vision_client import default_model, load_env
+from vision_mcp.vision_client import default_model, load_env, provider, resolve_api_key
 
 LOGGER = logging.getLogger("vision_mcp")
 
@@ -25,7 +25,8 @@ server = Server(
     name="vision-mcp",
     version="0.1.0",
     instructions=(
-        "为仅支持文本的模型提供看图能力：阿里云百炼 DashScope 视觉理解（默认 qwen3-vl-flash）。"
+        "为仅支持文本的模型提供看图能力：默认 DashScope 通义 VL；"
+        "设置 VISION_MCP_PROVIDER=moonshot 时使用 Kimi/Moonshot 视觉模型。"
         "vision.analyze：多图；本地路径优先于 URL 再 base64；intent/profile/quality。"
         "vision.clipboard_image（仅 macOS）：剪贴板图片写入 $HOME/.vision_mcp/clipboard/ 并返回路径。"
         "本地 file_path 默认限制在 $HOME 及 VISION_MCP_ALLOWED_DIRS。"
@@ -147,7 +148,7 @@ def extract_json_object(text: str) -> dict[str, Any] | None:
 def _analyze_sync(payload: dict[str, Any]) -> dict[str, Any]:
     """Runs in worker thread."""
     load_env()
-    api_key = os.environ.get("DASHSCOPE_API_KEY", "").strip()
+    api_key = resolve_api_key()
     model = default_model()
 
     images = payload.get("images") or []
