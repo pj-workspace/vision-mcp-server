@@ -6,13 +6,16 @@ import base64
 import io
 import logging
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import requests
 from PIL import Image
 
 from vision_mcp.oss_upload import OssUploadError, upload_file_and_get_url
+from vision_mcp.vision_client import uses_dashscope_oss
 
 LOGGER = logging.getLogger("vision_mcp.image_utils")
 
@@ -41,6 +44,11 @@ def _allowed_dirs() -> list[Path]:
     home = Path.home().resolve()
     raw = os.environ.get("VISION_MCP_ALLOWED_DIRS", "").strip()
     dirs: list[Path] = [home]
+    # 系统临时目录（macOS /var/folders/.../T，Linux /tmp）默认放行，
+    # 以便直接分析剪贴板/截图落盘的临时文件，无需手动复制到 $HOME。
+    tmp = Path(tempfile.gettempdir()).resolve()
+    if tmp not in dirs:
+        dirs.append(tmp)
     if raw:
         for part in raw.split(os.pathsep if os.pathsep in raw else ":"):
             p = part.strip()
@@ -95,6 +103,16 @@ def _encode_data_url(data: bytes, mime_type: str) -> str:
     return f"data:{mime_type};base64,{b64}"
 
 
+def _fetch_url_as_data_url(url: str) -> str:
+    response = requests.get(url, timeout=60)
+    response.raise_for_status()
+    content_type = response.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+    if not content_type.startswith("image/"):
+        content_type = "image/jpeg"
+    data = _maybe_resize_image_bytes(response.content)
+    return _encode_data_url(data, content_type)
+
+
 def _normalize_from_path(
     index: int,
     label: str | None,
@@ -120,7 +138,7 @@ def _normalize_from_path(
 
     data = _maybe_resize_image_bytes(data)
     size = len(data)
-    if size <= BASE64_SIZE_THRESHOLD:
+    if size <= BASE64_SIZE_THRESHOLD or not uses_dashscope_oss():
         suffix = path.suffix.lower()
         mime_map = {
             ".png": "image/png",
@@ -164,8 +182,22 @@ def _normalize_from_url(
     url: Any,
 ) -> NormalizedImage:
     u = str(url).strip()
-    if u.startswith(("https://", "http://", "oss://")):
-        return NormalizedImage(index, label, u, None)
+    if u.startswith(("https://", "http://")):
+        if uses_dashscope_oss():
+            return NormalizedImage(index, label, u, None)
+        try:
+            return NormalizedImage(index, label, _fetch_url_as_data_url(u), None)
+        except Exception as exc:  # noqa: BLE001
+            return NormalizedImage(index, label, None, f"下载图片失败: {exc}")
+    if u.startswith("oss://"):
+        if uses_dashscope_oss():
+            return NormalizedImage(index, label, u, None)
+        return NormalizedImage(
+            index,
+            label,
+            None,
+            "Moonshot/Kimi 不支持 oss://，请改用本地 file_path 或 base64",
+        )
     return NormalizedImage(index, label, None, f"不支持的 url 协议: {u[:80]}")
 
 
@@ -186,7 +218,7 @@ def _normalize_from_base64(
         return NormalizedImage(index, label, None, f"base64 解码失败: {exc}")
     raw = _maybe_resize_image_bytes(raw)
     mime_clean = str(mime).strip()
-    if len(raw) > BASE64_SIZE_THRESHOLD:
+    if len(raw) > BASE64_SIZE_THRESHOLD and uses_dashscope_oss():
         if not api_key:
             return NormalizedImage(
                 index,
